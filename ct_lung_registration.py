@@ -56,20 +56,10 @@ def mask_rescale(img, mask):
     return nib.Nifti1Image(im, img.affine)
 
 
-def call(cmd, stdout=PIPE, stderr=PIPE):
+def call(cmd):
     p = Popen(cmd)
     out, err = p.communicate()
     return out, err
-
-
-def read_f(fn):
-    f = open(fn)
-    return mmap.mmap(f.fileno(), 0, prot=mmap.PROT_READ)
-
-
-def write_f(f, fn):
-    out = open(fn, 'w')
-    out.write(f[:])
 
 
 def image_registration(fixed, moving, fixed_mask=None, moving_mask=None,
@@ -121,6 +111,7 @@ def image_registration(fixed, moving, fixed_mask=None, moving_mask=None,
             '--output', '[%s,%s]' % (path.join(tmp_dir, 'transformation_matrix'),
                                      path.join(tmp_dir, 'warped.nii.gz')),
             '--use-histogram-matching', '1',
+            '--winsorize-image-intensities', '[0.005,0.995]',
             '--initial-moving-transform', '[%s,%s,1]' % (fn_fixed, fn_moving),
             '--transform', 'Rigid[0.1]',
                 '--metric', 'MI[%s,%s,1,32,Regular,0.25]' % (fn_fixed, fn_moving),
@@ -134,7 +125,7 @@ def image_registration(fixed, moving, fixed_mask=None, moving_mask=None,
                 '--smoothing-sigmas', '3x2x1x0',
             '--transform', 'BSplineSyN[0.1,40,0,3]',
                 '--metric', 'CC[%s,%s,1,4]' % (fn_fixed, fn_moving),
-                '--convergence', '[100x100x100x50]',
+                '--convergence', '[150x150x100x50]',
                 '--shrink-factors', '20x14x7x4',
                 '--smoothing-sigmas', '3x2x1x0'])
 
@@ -150,10 +141,8 @@ def image_registration(fixed, moving, fixed_mask=None, moving_mask=None,
 
     warped = nib.load(path.join(tmp_dir, 'warped-raw.nii.gz'))
     warped = resample_from_to(warped, fixed_source, order=3)
-    forward = read_f(path.join(tmp_dir, 'transformation_matrixComposite.h5'))
-    inverse = read_f(path.join(tmp_dir, 'transformation_matrixInverseComposite.h5'))
     rmtree(tmp_dir)
-    return warped, forward, inverse
+    return warped
 
 
 if __name__ == "__main__":
@@ -179,11 +168,10 @@ if __name__ == "__main__":
     if args.m_m: moving_mask = nib.load(args.m_m)
     else: moving_mask = None
     if args.v: logging.basicConfig(level=logging.DEBUG)
+    else: logging.basicConfig(level=logging.INFO)
 
     cn = path.split(args.f)[-1]
     cnx = cn.split('.nii.gz')[0]
     cnx = cnx.split('.nii')[0]
-    warped, forward, inverse = image_registration(fixed, moving, fixed_mask, moving_mask)
+    warped = image_registration(fixed, moving, fixed_mask, moving_mask)
     warped.to_filename(path.join(args.o, cn))
-    write_f(forward, path.join(args.o, '%s_transformation_matrix_Composite.h5' % cnx))
-    write_f(inverse, path.join(args.o, '%s_transformation_matrix_Inverse_Composite.h5' % cnx))
